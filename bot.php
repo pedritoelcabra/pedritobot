@@ -892,6 +892,18 @@ function preventBonus(){
                     $att = $my_armies - 1 + $dep;
                     $priority = 7;
                     $delay = 1;
+                }elseif ($my_armies > 4){
+                    $empty_adyacent = $map->has_adyacent_inbonus($my_province, "neutral", $bonus->id);
+                    if(count($empty_adyacent) > 0){
+                        shuffle($empty_adyacent);
+                        $target = $empty_adyacent[0];
+                        $dep = 0;
+                        $att = $my_armies - 1;
+                        $priority = 7;
+                        $delay = 1;
+                    }
+                }
+                if(count($empty_adyacent) > 0){
                     $defendables[] = new CMove($priority, $dep, $dep, $my_province, $att, $my_province, $target, $delay);
                     toLogX("proposed run defend at {$map->region_names[$my_province]}");
                 }
