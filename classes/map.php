@@ -123,6 +123,64 @@ class CMap{
         return false;
     }
     
+    public function path_to_break($start, $bonus, $stacksize){           // returns array(int)
+        $path = array();
+        $end_regions = array();
+        foreach ($this->bonuses[$bonus]->regions as $region){
+            $end_regions[] = $region->id;
+        }
+        $candidates[$start] = $start;
+        $new_candidates = array();
+        foreach ($this->regions[$start]->connections as $conn){
+            // we don't path through regions with enough enemy armies to block us
+            if ($this->regions[$conn]->owner == $this->player_two){
+                if( (($this->regions[$conn]->armies + $this->income_two)*2) > ($stacksize) ){
+                    continue;
+                }
+            }
+            $new_candidates[$conn] = $start;
+        }
+        $new_candidates = $this->put_own_first($new_candidates);
+        $found = -1;
+        while ($found < 0){
+            $next_candidates = array();
+            foreach($new_candidates as $candidate => $parent){
+                if ($found >= 0) {continue;}
+                foreach($this->regions[$candidate]->connections as $conn){  
+                    if (in_array($conn, $end_regions)) {
+                        $found = $candidate;
+                    }
+                    if ($found >= 0) {continue;}
+                    // we don't path through regions with enough enemy armies to block us
+                    if ($this->regions[$conn]->owner == $this->player_two){
+                        if( (($this->regions[$conn]->armies + $this->income_two)*2) > ($stacksize) ){
+                            continue;
+                        }
+                    }
+                    if ((array_key_exists($conn, $candidates)) || (array_key_exists($conn, $new_candidates))){
+                        continue;
+                    }else{
+                        $next_candidates[$conn] = $candidate;                   
+                    }
+                }
+            }
+            $candidates = array_replace($candidates, $new_candidates);
+            $new_candidates = $this->put_own_first($next_candidates);
+            if ($found >= 0) {continue;}
+            if(empty($new_candidates)){
+                toLogX("no path possible, explored candidates: " . implode(",", $candidates));
+                return $path;
+            }
+        }
+        while ($candidates[$found] != $start){
+            $path[] = $candidates[$found];
+            $found = $candidates[$found];
+        }
+        $path = array_reverse($path);
+        toLogX("run break path from {$this->region_names[$start]} to {$this->bonus_names[$bonus]}: " . implode(",", $path));
+        return $path;
+    }
+    
     public function path_to_region($start, $end){           // returns array(int)
         $candidates[$start] = $start;
         $new_candidates = array();

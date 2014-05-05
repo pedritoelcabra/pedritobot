@@ -5,7 +5,8 @@
 //  turn 6: wtf
 // http://theaigames.com/competitions/warlight-ai-challenge/games/536119ee4b5ab21cbdadc0d6
 //
-//
+// less than optimal pathfinding:
+// http://theaigames.com/competitions/warlight-ai-challenge/games/53638d824b5ab235189f6e53
 
 include_once 'classes/map.php';
 include_once 'classes/moveReg.php';
@@ -405,6 +406,9 @@ function thinkMoves(){      // priority/delay
         toLog("break bonus:");
         breakBonus();           // 8/6     10
         toLog("");
+        toLog("break run:");
+        breakRun();             // 8       0
+        toLog("");
         toLog("prevent bonus:");
         preventBonus();         // 4/7
         toLog("");
@@ -701,6 +705,54 @@ function breakBonus(){
     // 
     $map->proposed_moves = array_merge($map->proposed_moves, $targets);
     
+}
+
+function breakRun(){
+    global $map, $strat;
+    $priority = 8;
+    $state = $strat->get_state();
+    //if($state != 2){return 0;}
+    $targets = array();      // holds moves
+    $stacks = array();
+    $stacks = $strat->get_my_stacks();
+    if (empty($stacks)){
+        $prov = $map->strongest_province($map->my_regions);
+        $stacks[$prov] = $map->regions[$prov]->armies;
+    }
+    toLogX("my stacks for run break: " . implode(",", array_keys($stacks)));
+    if (empty($stacks)){
+        return 0;
+    }
+    foreach ($map->enemy_bonuses as $bonus_id){
+        toLogX("trying to run-break {$map->bonus_names[$bonus_id]}");
+        $closest_stack = -1;
+        $closest_dist = 999;
+        $best_tile = -1;
+        foreach ($stacks as $loc => $armies){
+            if($armies == 0){continue;}
+            $path = $map->path_to_break($loc, $bonus_id, $armies);
+            $dist = count($path);
+            if($dist > 0){
+                if($dist < $closest_dist){
+                    $closest_stack = $loc;
+                    $closest_dist = $dist;
+                    $best_tile = $path[0];
+                }
+            }
+        }
+        toLogX("closest stack is at $closest_stack (dist: $closest_dist), path through $best_tile");
+        if($closest_stack == -1){
+            continue;
+        }
+        if($closest_dist > 4){
+            $priority = 4;
+        }
+        toLogX("run break: moving stack from {$map->region_names[$closest_stack]} to {$map->region_names[$best_tile]}");
+        $armies = $stacks[$closest_stack] - 1;
+        $stacks[$closest_stack] = 0;
+        $targets[] = new CMove($priority, 0, $map->income_one, $closest_stack, $armies, $closest_stack, $best_tile, 0);
+    }
+    $map->proposed_moves = array_merge($map->proposed_moves, $targets);
 }
 
 function suckerPunch(){
