@@ -1527,7 +1527,7 @@ function reqArmiesDefend($att){
     if($att < 10){
         return $att;
     }else{
-        return round(($att*9)/10);
+        return round(($att*95)/100);
     }
 }
 
