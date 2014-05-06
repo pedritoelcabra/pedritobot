@@ -113,34 +113,30 @@ class CStrat{
     
     public function guess_starts(){
         $starts = array();
-        // find known starts
+        
+        // find known starts from picks and visible regions
         foreach ($this->map->regions as $region){
             if($region->owner == $this->map->player_two){
-                $starts[] = $region->bonus;
+                $starts[] = $region->id;
             }
         }
-        // if less than 3 known starts
-        $bonuses = array();
-        if(count($starts) < 3){
-            foreach ($this->map->bonuses as $bonus){
-                $bonuses[$bonus->id] = $bonus->income;
+        $count_ours = 0;
+        foreach ($this->map->start_picks as $pick){
+            if($count_ours < 3){
+                if ( $this->map->regions[$pick]->owner == $this->map->player_one ){
+                    $count_ours++;
+                    continue;
+                }elseif ( $this->map->regions[$pick]->owner == $this->map->player_two ) {
+                    continue;
+                }elseif ( $this->map->regions[$pick]->owner == "unknown" ){
+                    $starts[] = $pick;
+                    $this->map->regions[$pick]->owner = $this->map->player_two;
+                }
             }
         }
-        // guess one start in every bonus we dont know entirely, starting with the small ones
-        // if any smallest bonus is entirely unexplored, guess 2 starts there (ie southam, oceania)
-        asort($bonuses);
-        foreach ($bonuses as $bonus => $income){
-            if(count($starts) > 2){continue;}
-            $number_regions = count($this->map->bonuses[$bonus]->regions);
-            $unknowns = count($this->map->prov_in_bonus($bonus, "unknown"));
-            if($unknowns < 1){continue;}
-            if( ($income == $this->map->smallestbonus) && ($number_regions == $unknowns) && (count($starts) < 2) ){
-                $starts[] = $bonus;
-            }
-            $starts[] = $bonus;
-        }
+        toLog("knows enemy starts: " . implode(",", $starts));
+        
         $this->his_starts = $starts;
-        toLog("guessed enemy starts: " . implode(",", $starts));
     }
     
     public function setBonusAttitude(){
@@ -364,7 +360,7 @@ class CStrat{
         }        
     }
     
-    private function add_guessed_bonus($bonus_id){
+    public function add_guessed_bonus($bonus_id){
         $this->map->enemy_bonuses[] = $bonus_id;
         $this->map->guessed_bonuses[] = $bonus_id;
         $this->map->bonuses[$bonus_id]->owner = $this->map->player_two;

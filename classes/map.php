@@ -31,6 +31,7 @@ class CMap{
     public $sos_call = array();
     public $enemy_expand_deploy;
     public $bonus_taking_now;
+    public $start_picks = array();
     
     public function get_blocked($priority){
         $blocked_regions = array();
@@ -125,6 +126,7 @@ class CMap{
     
     public function path_to_break($start, $bonus, $stacksize){           // returns array(int)
         $path = array();
+        $dist = 1;
         $end_regions = array();
         foreach ($this->bonuses[$bonus]->regions as $region){
             $end_regions[] = $region->id;
@@ -152,7 +154,7 @@ class CMap{
                     }
                     if ($found >= 0) {continue;}
                     // we don't path through regions with enough enemy armies to block us
-                    if ($this->regions[$conn]->owner == $this->player_two){
+                    if ( ($this->regions[$conn]->owner == $this->player_two) && ($dist < 2) ){
                         if( (($this->regions[$conn]->armies + $this->income_two)*2) > ($stacksize) ){
                             continue;
                         }
@@ -164,6 +166,7 @@ class CMap{
                     }
                 }
             }
+            $dist++;
             $candidates = array_replace($candidates, $new_candidates);
             $new_candidates = $this->put_own_first($next_candidates);
             if ($found >= 0) {continue;}
@@ -339,6 +342,16 @@ class CMap{
             }
         }
         return $returnval;
+    }
+    
+    public function prov_of_owner($prov_arr, $owner){
+        $owned = array();
+        foreach ($prov_arr as $prov_id){
+            if($this->regions[$prov_id]->owner == $owner){
+                $owned[] = $prov_id;
+            }
+        }
+        return $owned;
     }
     
     public function prov_ady_to_bonus($bonus){
