@@ -573,9 +573,9 @@ function blockStrategics(){
             $my_armies = $map->regions[$region_id]->armies;
             $his_armies = $map->regions[$strongest_enemy]->armies;
             
-            // if no stack, no need to block
-            if($his_armies < $map->income_one){continue;}
-            if($my_armies < $map->income_one){continue;}
+            // if no stack, lower priority
+            if($his_armies < $map->income_one){$priority = 6;}
+            if($my_armies < $map->income_one){$priority = 6;}
             
             // if he has a lot of armies, too dangerous
             if( ($his_armies * 0.8 ) > $my_armies ){continue;}
@@ -786,6 +786,11 @@ function breakRun(){
         }
         toLogX("closest stack is at $closest_stack (dist: $closest_dist), path through $best_tile");
         if($closest_stack == -1){
+            toLogX("no path/stack found");
+            continue;
+        }
+        if($closest_dist > ($round - 2)){
+            toLogX("path too long for current game-state");
             continue;
         }
         if($closest_dist > 2){
@@ -1459,9 +1464,21 @@ function attackToString(){
     $string = "";
     $count = 0;
     global $map;
-    foreach ($map->final_moves as $move){
+    $duplicates = array();
+    foreach ($map->final_moves as $key => $move){
         if ($move->attack_amount < 1){
             continue;
+        }
+        if(in_array($key, $duplicates)){
+            continue;
+        }
+        foreach ($map->final_moves as $key_b => $move_b){
+            if ( ($move_b->attack_start == $move->attack_start) && 
+                    ($move_b->attack_end == $move->attack_end) && 
+                    ($move_b->attack_amount > 0) ){
+                $move->attack_amount += $move_b->attack_amount;
+                $duplicates[] = $key_b;
+            }
         }
         if($count > 0){
             $string .= ", ";
