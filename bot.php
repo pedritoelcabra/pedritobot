@@ -2,11 +2,6 @@
 <?php
 //include __main__;
 //  
-//  turn 6: wtf
-// http://theaigames.com/competitions/warlight-ai-challenge/games/536119ee4b5ab21cbdadc0d6
-//
-// less than optimal pathfinding:
-// http://theaigames.com/competitions/warlight-ai-challenge/games/53638d824b5ab235189f6e53
 
 include_once 'classes/map.php';
 include_once 'classes/moveReg.php';
@@ -14,7 +9,7 @@ include_once 'classes/strat.php';
 
 $run = true;
 $map = new CMap();
-$mreg = new CRegister();
+$mreg = new CRegister($map);
 $strat = new CStrat($map, $mreg);
 $log = false;
 $round = 0;
@@ -215,7 +210,7 @@ function pickStarts($inputStr){
         $value += count($ady_bonuses);
         foreach ($ady_bonuses as $ady_bonus){
             if($map->bonuses[$ady_bonus]->income == $map->smallestbonus){
-                $value += 10;
+                $value += 3;
             }
         }
         $value += $isolationval[$bonus];
@@ -491,19 +486,20 @@ function openingMove(){
             break;
         }
         default:{
-            $weight_attack_rand = 10;
-            $weight_attack_east = 10;
-            $weight_defend_both = 10;
+            $weight_attack_rand = 0;
+            $weight_attack_east = 0;
+            $weight_defend_both = 0;
             $weight_defend_one = 10;
-            $choice_raw[0] = rand(0, $weight_attack_rand);
-            $choice_raw[1] = rand(0, $weight_attack_east);
-            $choice_raw[2] = rand(0, $weight_defend_both);
-            $choice_raw[3] = rand(0, $weight_defend_one);            
+            $choice_raw[0] = rand(0, $weight_defend_one);
+            $choice_raw[1] = rand(0, $weight_defend_both);
+            $choice_raw[2] = rand(0, $weight_attack_east);
+            $choice_raw[3] = rand(0, $weight_attack_rand);            
             $choice = array_keys($choice_raw, max($choice_raw));
             toLog("opening choice: $choice[0]");
             
             switch ($choice[0]){
                 case 0:{
+                    shuffle($adyacent_to_enemy);
                     $map->proposed_moves[] = new CMove(10, 5, 5, $adyacent_to_enemy[0], 0, 0, 0, 1);
                     break;
                 }
@@ -515,17 +511,14 @@ function openingMove(){
                 case 2:{
                     rsort($adyacent_to_enemy);
                     $start_id = $adyacent_to_enemy[0];
-                    $attack = true;
                     break;
                 }
                 case 3:{
                     shuffle($adyacent_to_enemy);
                     $start_id = $adyacent_to_enemy[0];
-                    $attack = true;
                     break;
                 }
-            }
-            
+            }            
             if(isset($start_id)){
                 $enemy = $map->has_adyacent($start_id, $map->player_two);
                 $enemy_id = $enemy[0];
@@ -1148,8 +1141,8 @@ function exploreBonus(){
     $state = $strat->get_state();
     if($state == 3){return 0;}
     
-    //if we have the income edge, sit on it
-    if($map->income_one > $map->income_two){return 0;}
+    //if we have the income edge, sit on it (not anymore since new pathing...)
+    //if($map->income_one > $map->income_two){return 0;}
     
     $explorables = array();
     foreach($map->bonuses as $bonus){

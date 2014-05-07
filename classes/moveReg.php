@@ -2,7 +2,9 @@
 
 class CRegister{
     private $moves = array();
+    private $att_on_neutrals = array();
     private $round = 0;
+    private $map;
     
     public function get_att($start, $end, $round, $own){
         foreach ($this->moves[$round] as $move){
@@ -22,7 +24,6 @@ class CRegister{
             
             $attacks++;
         }
-        toLogX("registered $attacks attacks in round $round");
         return $attacks;
     }
     
@@ -71,6 +72,10 @@ class CRegister{
         }
     }
 
+    public function getAttacks_on_neutrals($round) {
+        return $this->att_on_neutrals[$round];
+    }
+    
     public function regMoves($inputStr, $is_own, $round){
     // example query is: opponent_moves player2 place_armies 14 2 player2 attack/transfer 5 7 5
         $inputArr = explode(" ", $inputStr);        
@@ -81,6 +86,7 @@ class CRegister{
         $valA = -1;
         $valB = -1;
         $is_deploy = true;
+        $attacks_on_neutrals = 0;
         foreach ($inputArr as $entry){
             $entry = rtrim($entry, ",");
             if(is_numeric($entry)){
@@ -98,6 +104,9 @@ class CRegister{
                         }else{                            
                             $this->moves[$round][] = new CAttack($is_own, $valA, $valB, $entry);
                             toLogX("registered attack: $owner, $valA, $valB, $entry");
+                            if($this->map->regions[$valB]->owner == "neutral"){
+                                $attacks_on_neutrals++;
+                            }
                             break;
                         }
                 }
@@ -113,8 +122,13 @@ class CRegister{
             $this->moves[$round][] = new CAttack($is_own, 0, $deploy_loc, $deploy_amount);
             toLogX("registered deploy: $owner, $deploy_loc, $deploy_amount");
         }
+        $this->att_on_neutrals[$round] += $attacks_on_neutrals;
     }
     
+    public function __construct(&$map) {
+        $this->map = $map;
+        $this->att_on_neutrals = array_fill(0, 100, 0);
+    }
 }
 
 class CAttack{

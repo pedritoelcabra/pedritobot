@@ -399,13 +399,13 @@ class CStrat{
         // check for initial
         if($round < 2){return 1;}
         
-        // check for deadlock: 8 turns without attacks        
+        // check for deadlock: 8 turns without attacks
         if( ($this->round > 7) &&
-            ($this->reg->attacks_in_round($round - 1) < 1) &&
-            ($this->reg->attacks_in_round($round - 2) < 1) &&
-            ($this->reg->attacks_in_round($round - 3) < 1) &&
-            ($this->reg->attacks_in_round($round - 4) < 1) &&
-            ($this->reg->attacks_in_round($round - 5) < 1) ){
+            ($this->reg->attacks_in_round($round - 1) <= $this->reg->getAttacks_on_neutrals($round - 1)) &&
+            ($this->reg->attacks_in_round($round - 2) <= $this->reg->getAttacks_on_neutrals($round - 2)) &&
+            ($this->reg->attacks_in_round($round - 3) <= $this->reg->getAttacks_on_neutrals($round - 3)) &&
+            ($this->reg->attacks_in_round($round - 4) <= $this->reg->getAttacks_on_neutrals($round - 4)) &&
+            ($this->reg->attacks_in_round($round - 5) <= $this->reg->getAttacks_on_neutrals($round - 5)) ){
             return 2;
         }
         
