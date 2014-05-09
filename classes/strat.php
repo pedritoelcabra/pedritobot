@@ -52,7 +52,8 @@ class CStrat{
                     continue;
                 }elseif($region->armies < reqArmiesAttack($my_possible_defense)){
                     // he needs to deploy to get a good fight, so lets assume he will do so
-                    $this->his_deploys[$region->id] = $this->map->income_two;
+                    // too generalized, creates false predictions
+                    //$this->his_deploys[$region->id] = $this->map->income_two;
                 }
                 $this->his_attacks[$my_prov] = $armies_to_expect;
                 toLogX("predicted enemy will attack {$this->map->region_names[$my_prov]} with $armies_to_expect armies");        
@@ -398,6 +399,13 @@ class CStrat{
         
         // check for initial
         if($round < 2){return 1;}
+        
+        // if no regions have been lost or gained, stay at initial for some more rounds
+        if($this->map->my_regions == $this->map->start_regions){
+            if($round < 5){
+                return 1;                
+            }
+        }
         
         // check for deadlock: 8 turns without attacks
         if( ($this->round > 7) &&

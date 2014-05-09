@@ -31,7 +31,9 @@ class CMap{
     public $sos_call = array();
     public $enemy_expand_deploy;
     public $bonus_taking_now;
+    public $bonuses_breaking_now = array();
     public $start_picks = array();
+    public $start_regions = array();
     
     public function get_blocked($priority){
         $blocked_regions = array();
