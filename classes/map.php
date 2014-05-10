@@ -35,6 +35,17 @@ class CMap{
     public $start_picks = array();
     public $start_regions = array();
     
+    public function check_for_give_away_bonus($att_start, $att_end){        
+        $bonus = $this->regions[$att_start]->bonus;
+        if($this->bonuses[$bonus]->owner == $this->player_one){
+            if( ($this->regions[$att_end]->owner == "neutral") 
+                && (count($this->has_adyacent($att_end, $this->player_two)) > 0 ) ){
+                return 1;
+            }
+        }
+        return 0;
+    }
+
     public function get_blocked($priority){
         $blocked_regions = array();
         foreach($this->blocked_regions as $region => $block_lvl){
