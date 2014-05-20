@@ -17,11 +17,13 @@ class CMap{
     public $armies_left_region = array();         // armies left in each of my regions after my move has been executed
     public $my_bonuses  = array();
     public $my_regions  = array();
+    public $my_last_regions  = array();
     public $enemy_bonuses  = array();
     public $bonuses_broken_last_turn = array();
     public $guessed_bonuses = array();
     public $guessed_regions = array();
     public $enemy_regions  = array();
+    public $enemy_last_regions  = array();
     public $blocked_regions = array();
     public $threats_to_bonus = array();
     public $deploy_last = array();

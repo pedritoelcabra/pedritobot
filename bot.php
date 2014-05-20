@@ -7,12 +7,14 @@ include_once 'classes/map.php';
 include_once 'classes/moveReg.php';
 include_once 'classes/strat.php';
 
+$use_map_specific_strategy = "small_earth";
 $run = true;
 $map = new CMap();
 $mreg = new CRegister($map);
 $strat = new CStrat($map, $mreg);
 $log = false;
 $round = 0;
+$line = 0;
 $loadgame = array();
 $loading = 0;
 $verbose = 0;
@@ -241,15 +243,19 @@ function pickStarts($inputStr){
 function updateMap($inputStr){
     // example query is: "update_map 1 player1 2 2 player1 4 3 neutral 2 4 player2 5"
     global $round;
-    global $map;
+    global $map, $strat;
     $round++;
-    toLog("\n*****ROUND $round*****\n");
+    toLog("\n*********************************************");
+    toLog("*****************  ROUND $round  ************");
+    toLog("*********************************************\n");
     // new round, enemy moves get archived
     $map->enemy_deploy[$round - 1] = $map->deploy_last;
     // default deploy stats are set to "no info"
     $map->deploy_last = array_fill(1, count($map->regions), -1);
     $map->sos_call = array_fill(1, count($map->regions), -1);
     $map->blocked_regions = array_fill(1, count($map->regions), -1);
+    $map->enemy_last_regions = $map->enemy_regions;
+    $map->my_last_regions = $map->my_regions;
     $inputparts = explode(" ", substr($inputStr, strlen("update_map ")));
     $my_new_regions = array();
     $map->bonuses_broken_last_turn = array();
@@ -321,22 +327,7 @@ function updateMap($inputStr){
         }
         if (in_array($bonus->id, $map->guessed_bonuses)){
             if( ($bonus->owner == $map->player_one) || ($bonus->owner ==  "neutral") ) {
-                $pos = array_search($bonus->id, $map->guessed_bonuses);
-                unset($map->guessed_bonuses[$pos]);
-                foreach ($bonus->regions as $region){
-                    if(in_array($region->id, $map->guessed_regions)){
-                        $pos = array_search($region->id, $map->guessed_regions);
-                        unset($map->guessed_regions[$pos]);
-                        if(($region->owner == $map->player_two) && ($region->visible == 0)){
-                            $region->owner = "unknown";
-                        }
-                    }
-                }
-                if(($map->income_two - $bonus->income) >= 5){
-                    $map->income_two -= $bonus->income;
-                }
-                $map->bonuses_broken_last_turn[] = $bonus->id;                
-                toLog("guessed bonus {$map->bonus_names[$bonus->id]} not owned by enemy");
+                $strat->remove_guessed_bonus($bonus->id);
             }else{
                 $bonus->owner = $map->player_two;
             }
@@ -360,7 +351,7 @@ function updateMap($inputStr){
     if($verbose > 0){
         foreach ($map->regions as $region){
             $visible = $region->visible ? "visible" : "invisible";
-            toLogX("region {$map->region_names[$region->id]} owned by {$region->owner} ($visible)");
+            //toLogX("region {$map->region_names[$region->id]} owned by {$region->owner} ($visible)");
         }
     }
     if($round == 1){
@@ -395,7 +386,7 @@ function readOppMoves($inputStr){
 }
 
 function thinkMoves(){      // priority/delay
-    global $strat, $round;
+    global $strat, $round, $use_map_specific_strategy;
     $strat->think($round);
     $state = $strat->get_state();
     
@@ -410,6 +401,11 @@ function thinkMoves(){      // priority/delay
         }
     }
     if($state != 1){
+        if($use_map_specific_strategy != ""){
+            toLog("");
+            toLog("map specific stuff: $use_map_specific_strategy");
+            mapSpecific($use_map_specific_strategy);
+        }
         toLog("");
         toLog("block strategic regions adyacent to our bonuses");
         blockStrategics();
@@ -466,6 +462,7 @@ function openingMove(){
     
     if(($map->income_one > 5) || ($map->income_two > 5)){
          toLog("abort openingMove! someone has income!");
+         $strat->set_state(3);
         return 0;
     }
     if($round > 1){
@@ -475,14 +472,24 @@ function openingMove(){
             toLog("abort openingMove! my region is bordered by more than 1 enemy!");
             return 0;
         }
+        if(count($adyacents) < 1){
+            toLog("abort openingMove! no enemy adyacent!");
+            return 0;
+        }
         $his_prov = $adyacents[0];
         $attack = 0;
         $end = 0;
         $start = 0;
         $my_armies = $map->regions[$my_prov]->armies;
+        if($my_armies > ($map->income_one*10)){
+            toLog("abort openingMove! stack too big");
+            $strat->set_state(2);
+            return 0;
+        }
         $his_armies = $map->regions[$his_prov]->armies;
         if($his_armies > $my_armies){
             toLog("abort openingMove! his region has an advantage!");
+            $strat->set_state(3);
             return 0;
         }
         if( ($his_armies + 2) < $my_armies){
@@ -587,6 +594,43 @@ function openingMove(){
     return 1;
 }
 
+function mapSpecific($map_name){
+    global $map, $strat, $round;
+    if(($map_name == "small_earth") && 
+            ($map->bonuses[2]->owner == $map->player_one) &&
+            ($map->bonuses[6]->owner == $map->player_two) && 
+            ($map->regions[21]->owner == $map->player_one) &&
+            ($map->income_two <= $map->income_one)){
+        $map->block_region(21, 8);
+        if($strat->get_state() == 5){
+            toLogX("we'll wait out the enemy in north africa!");
+            $map->send_sos(21, 10);
+            $map->proposed_moves[] = new CMove(10, 7, 7, 21, 0, 0, 0, 0);
+            $my_ady = $map->has_adyacent(21, $map->player_one);
+            toLogX("my adyacent: " . implode(",", $my_ady));
+            foreach ($my_ady as $ady) {
+                $armies = $map->regions[$ady]->armies - 1;
+                if($armies < 1){continue;}
+                $map->proposed_moves[] = new CMove(10, 0, 0, $ady, $armies, $ady, 21, 0);
+            }
+        }
+    }
+    if(($map_name == "small_earth") &&
+            (!count($map->prov_in_bonus(6, $map->player_two))) &&
+            (!count($map->prov_in_bonus(2, $map->player_two))) ){
+        if(($round == 1) && ($map->regions[12]->owner == $map->player_one) ){
+            toLogX("enemy going for europe... going for break!");
+            $map->proposed_moves[] = new CMove(10, 5, 5, 12, 6, 12, 21, 0);
+        }
+        if(($round == 2) && ($map->regions[21]->owner == $map->player_one) ){
+            toLogX("enemy going for europe... going for break!");
+            $armies = $map->regions[21]->armies - 1 + 5;
+            $weaker = ($map->regions[18]->armies < $map->regions[20]->armies ? 18 : 20);
+            $map->proposed_moves[] = new CMove(10, 5, 5, 21, $armies, 21, $weaker, 0);
+        }
+    }
+}
+
 function blockStrategics(){
     global $map;
     // no need to waste time defending bonuses too much if we have a big edge
@@ -649,11 +693,12 @@ function blockStrategics(){
 }
 
 function defendBonus(){
-    global $map;
+    global $strat, $map;
     $priority = 9;
     $adyacent_armies = 1;
     $defendables = array();
-    foreach ($map->my_bonuses as $bonusid){
+    $bonuses_to_defend = $map->my_bonuses;
+    foreach ($bonuses_to_defend as $bonusid){
         foreach ($map->bonuses[$bonusid]->regions as $region){
             $adyacent_armies = 1;
             $threat_province = -1;
@@ -667,11 +712,23 @@ function defendBonus(){
             }
             $potential_enemies = $map->income_two + $adyacent_armies;
             $defenders = $map->armies_left_region[$region->id];
+            toLogX("$defenders defenders, $potential_enemies attackers");
             if($potential_enemies > reqArmiesAttack($defenders + $map->income_one)){
                 // if it's quite hopeless, lower priority
-                $priority = 7;
+                $priority -= 2;
+            }else{
+                // if this province has other bonuses of ours adyacent, higher priority
+                $adyacent_bonuses = $map->bonuses_bordering_prov($region->id);
+                foreach ($adyacent_bonuses as $ady_bonus_id) {
+                    if($map->bonuses[$ady_bonus_id]->owner == $map->player_one){
+                        $priority += 1;
+                    }
+                }
             }
-            $reinforce = $potential_enemies - $defenders;
+            $reinforce = $potential_enemies - reqArmiesAttack($defenders);
+            if($reinforce < 1){
+                $reinforce = 0;                
+            }
             // take into account other provinces defending against this threat
             if(key_exists($threat_province, $map->threats_to_bonus)){
                 $reinforce -= $map->threats_to_bonus[$threat_province];
@@ -707,6 +764,7 @@ function breakBonus(){
     $map->bonuses_breaking_now = array();
     //$priority = 8;
     $priority = 8;
+    $delay = 10;
     toLogX("enemy bonuses: " . implode(" ", $map->enemy_bonuses));
     // check enemy bonuses for opportunities to break
     foreach ($map->enemy_bonuses as $bonusid){
@@ -796,9 +854,20 @@ function breakBonus(){
             continue;
         }
         $req_deploy = nonZero(($req - ($available_armies)) + 1);
-        $targets[] = new CMove($priority ,$req_deploy , $req_deploy, $best_prov_b, $available_armies - 1, $best_prov_b , $best_target, 10);
-        for($i = 0; $i < ($map->income_one - $req_deploy); $i++){
-            $targets[] = new CMove(4 ,1 , 1, $best_prov_b, 0, 0, 0, 0);
+        $map->block_region($best_prov_b, $priority);
+        if($map->regions[$best_target]->owner == "neutral"){
+            $delay = 2;
+        }
+        $targets[] = new CMove($priority ,$req_deploy , $req_deploy, $best_prov_b, $available_armies - 1, $best_prov_b , $best_target, $delay);
+        // we deploy more armies if we have spare
+        $priority = 4;
+        $max_surplus_deploy = $map->income_one - $req_deploy;
+        if($map->regions[$best_target]->owner == "neutral"){
+            // we have a chance to surprise him
+            $priority = 6;
+        }
+        for($i = 0; $i < $max_surplus_deploy; $i++){
+            $targets[] = new CMove($priority ,1 , 1, $best_prov_b, 0, 0, 0, 0);
         }
         toLog("break proposed priority $priority: deploy $req_deploy - {$map->income_one} at {$map->region_names[$best_prov_b]} and attack {$map->region_names[$best_target]}");
         $map->bonuses_breaking_now[] = $bonusid;
@@ -874,8 +943,15 @@ function breakRun(){
             $priority = 4;
         }
         if($map->check_for_give_away_bonus($closest_stack, $best_tile)){
-            toLogX("break run from here would give away our bonus...");
-            continue;
+            $provinces_in_bonus = 0;
+            foreach ($map->my_bonuses as $bonus_id){
+                $provinces_in_bonus += count($map->bonuses[$bonus_id]->regions);
+            }
+            // if we have other provinces...
+            if ($provinces_in_bonus < count($map->my_regions)){
+                toLogX("break run from here would give away our bonus...");
+                continue;
+            }
         }
         toLogX("run break: moving stack from {$map->region_names[$closest_stack]} to {$map->region_names[$best_tile]}");
         $armies = $stacks[$closest_stack] - 1;
@@ -1070,6 +1146,7 @@ function destroyArmy(){
         if (!count($adyacent_enemies)){
             continue;
         }else{
+            shuffle($adyacent_enemies);
             usort($adyacent_enemies, "regionByArmies");
             foreach ($adyacent_enemies as $target_id){
                 $strongest_mine_adyacent = $map->strongest_province($map->has_adyacent($target_id, $map->player_one));
@@ -1079,6 +1156,12 @@ function destroyArmy(){
                 $priority = 6;
                 $his_armies = $map->regions[$target_id]->armies;
                 $my_armies = $map->regions[$region_id]->armies - 1;
+                if( ($map->income_one > $map->income_two) && ($my_armies > ($map->income_one*10)) ){
+                    $priority = 7;
+                    if($his_armies > ($map->income_one*10)){
+                        $priority = 8;
+                    }
+                }
                 $predicted_deploy = $strat->predict_deploy($target_id);
                 toLogX("predicted $predicted_deploy");
                 // normal attack                
@@ -1089,7 +1172,6 @@ function destroyArmy(){
                 $need_deploy = nonZero(($attack_str + 1 ) - $my_armies);
                 if ($need_deploy > $map->income_one){
                     $my_armies += 1;
-                    $priority = 6;
                     $potential_attackers = $his_armies + $predicted_deploy - 1;
                     $necessary_defenders = reqArmiesDefend($potential_attackers);
                     $need_deploy = nonZero($necessary_defenders - $my_armies);
@@ -1130,7 +1212,12 @@ function destroyArmy(){
                             . "{$map->region_names[$region_id]} (deploy $need_deploy) priority $priority");                         
                     }           
                 }else{                    
-                    $destroyables[] = new CMove($priority, $need_deploy, $map->income_one, $region_id, 
+                    $max_deploy = $map->income_one;
+                    // avoid overcommitting against 1 army territories
+                    if($attack_str < 4){
+                        $max_deploy = $need_deploy + 1;
+                    }
+                    $destroyables[] = new CMove($priority, $need_deploy, $max_deploy, $region_id, 
                             $attack_str, $region_id, $target_id, $delay);
                     toLog("proposed to destroy enemy at {$map->region_names[$target_id]}, from " 
                         . "{$map->region_names[$region_id]} (deploy {$need_deploy}, attack with {$attack_str}) priority $priority");
@@ -1255,9 +1342,13 @@ function exploreBonus(){
     // when we don't know a bonus entirely, we want to explore it before taking it
     global $map, $strat;
     
-    // no exploration during all out war
+    // no exploration during all out war or mopup
     $state = $strat->get_state();
-    if($state == 3){return 0;}
+    if(($state == 3) || ($state == 4) ){return 0;}
+    // if the game is deadlocked and we have an income advantage, sit on it
+    if(($state == 2) && ($map->income_one > ($map->income_two + 1))){
+        return 0;
+    }
     
     //if we have the income edge, sit on it (not anymore since new pathing...)
     //if($map->income_one > $map->income_two){return 0;}
@@ -1267,6 +1358,8 @@ function exploreBonus(){
         $attitude = $strat->get_bonus_attitude($bonus->id);
         if($attitude != 2){continue;}
         
+        toLogX("considering expansion possibilities in {$map->bonus_names[$bonus->id]}");
+        
         $my_provinces = $map->prov_in_bonus($bonus->id, $map->player_one);
         $priority = 3;
         if(count($my_provinces) == 0){
@@ -1275,6 +1368,7 @@ function exploreBonus(){
         
         $neutrals = $map->prov_in_bonus($bonus->id, "neutral");
         $target_id = -1;
+        $best_province = -1;
         $most_value = 0;
         
         // find the best neutral to explore
@@ -1288,7 +1382,14 @@ function exploreBonus(){
             $my_blocked = $map->get_blocked($priority);
             $my_non_blocked = array_diff($my_adyacent, $my_blocked);
             if (count($my_non_blocked) < 1){ continue; }
-            $my_adyacent_armies = $map->regions[$map->strongest_province($my_non_blocked)]->armies;
+            $best_province_here = $map->strongest_province($my_non_blocked);
+            // if no province to attack from, skip
+            if($best_province_here < 1){continue;}
+            // one again we bail if we have enemies nearby
+            if ($map->has_adyacent($best_province_here, $map->player_two)){continue;}
+            
+            $my_adyacent_armies = $map->regions[$best_province_here]->armies;
+            
             $value = $my_adyacent_armies + count($map->regions[$neutral_id]->connections);
             
             $other_bonuses = count($map->bonuses_bordering_prov($neutral_id));
@@ -1297,19 +1398,11 @@ function exploreBonus(){
             if ($value > $most_value){
                 $most_value = $value;
                 $target_id = $neutral_id;
+                $best_province =$best_province_here;
             }
         }
         if ($target_id > -1){
-            $my_adyacent = $map->has_adyacent($target_id, $map->player_one);
-            $my_blocked = $map->get_blocked($priority);
-            toLogX("blocked priority $priority : " . implode(" ", $my_blocked));
-            $my_non_blocked = array_diff($my_adyacent, $my_blocked);
-            toLogX("non blocked priority $priority : " . implode(" ", $my_non_blocked));
-            $best_province = $map->strongest_province($my_non_blocked);
-            // if no province to attack from, skip
-            if($best_province < 1){continue;}
-            // one again we bail if we have enemies nearby
-            if ($map->has_adyacent($best_province, $map->player_two)){continue;}
+            toLogX("best province to explore: {$map->region_names[$target_id]} from {$map->region_names[$best_province]}");
             
             $armies_attack = reqArmiesAttack($map->regions[$target_id]->armies);
             $armies_deploy = nonZero($armies_attack - $map->regions[$best_province]->armies + 1);
@@ -1383,7 +1476,11 @@ function moveReinforce(){
         }
         
         $priority = 1;
-        $delay = 3;
+        $delay = 4;
+        // reinforce regions next to enemies first
+        if($map->has_adyacent($target, $map->player_two)){
+            $delay = 3;
+        }
         if($map->answer_sos($region_id) > 0){
             $target = $map->answer_sos($region_id);
             $priority = $map->sos_call[$target];
@@ -1435,7 +1532,7 @@ function evaluateMoves(){
     $map->final_moves = array();
     $moves = $map->proposed_moves;
     foreach ($moves as $move){
-        toLogX("proposed move: P: $move->priority D: $move->deploy_max L: {$map->region_names[$move->deploy_loc]}" . 
+        toLogX("proposed move: P: $move->priority D: $move->delay DEP: $move->deploy_max L: {$map->region_names[$move->deploy_loc]}" . 
                 " ATT: $move->attack_amount -> {$map->region_names[$move->attack_end]}");
     }
     toLogX("armies left per region: " . implode(" ", $map->armies_left_region) . " regions: " . implode(" ", array_keys($map->armies_left_region)));
@@ -1570,7 +1667,7 @@ function deployToString(){
     global $map;
     $deploy_orders = array();
     foreach ($map->final_moves as $move){
-        toLog("final move: P: $move->priority D: $move->deploy_max L: {$map->region_names[$move->deploy_loc]}" . 
+        toLog("final move: P: $move->priority D: $move->delay DEP: $move->deploy_max L: {$map->region_names[$move->deploy_loc]}" . 
                 " ATT: $move->attack_amount -> {$map->region_names[$move->attack_end]}");
         if ($move->deploy_max == 0){
             continue;
@@ -1688,7 +1785,9 @@ function attStr($a, $b){
 }
 
 function toLog($msg){
-    global $log;
+    global $round, $log, $line;
+    $msg = $round . "  " . $msg;
+    $line++;
     if ($log){
         $f = fopen( $log , "a");
         fwrite($f, $msg);

@@ -127,7 +127,7 @@ class CRegister{
     
     public function __construct(&$map) {
         $this->map = $map;
-        $this->att_on_neutrals = array_fill(0, 100, 0);
+        $this->att_on_neutrals = array_fill(0, 101, 0);
     }
 }
 

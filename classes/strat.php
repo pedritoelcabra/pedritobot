@@ -14,17 +14,33 @@ class CStrat{
     private $strategies = array();
     private $his_attacks = array();
     private $his_deploys = array();
+    private $bonus_thought_expanding;
+    private $though_round_count;
+    private $enable_expansion_guessing;
+    private $bonus_attitude_names = array();
+    private $rounds_to_deadlock;
 
     public function think($round) {
         $this->round = $round;
         if($round == 1) {$this->guess_starts();}
+        toLog("");
+        toLog("find stacks:");
         $this->find_stacks();
+        toLog("");
+        toLog("guess_bonus_situation:");
         $this->guess_bonus_situation();
         $this->state = $this->define_state($round);
+        toLog("");
+        toLog("setBonusAttitude:");
         $this->setBonusAttitude();
+        toLog("");
+        toLog("guess_attacks:");
         $this->guess_attacks();
+        toLog("");
+        toLog("guess_deploy:");
         $this->guess_deploy();
         toLog("current game-state: {$this->states[$this->state]}");
+        toLog("bonus taking now: {$this->map->bonus_taking_now}");
     }
     
     public function predict_attack($region){
@@ -63,12 +79,18 @@ class CStrat{
     
     public function predict_deploy($region){
         toLogX("strat prediction for $region : {$this->his_deploys[$region]}");
+        $deploy = 0;
         if($this->his_deploys[$region] >= 0){
-            return $this->his_deploys[$region];
+            $deploy = $this->his_deploys[$region];
         }else{
             // else we go with the history-based deploy prediction
-            return $this->map->predict_deploy($region);
+            $deploy = $this->map->predict_deploy($region);
         }
+        if( ($deploy == $this->map->income_two) && ($this->bonus_thought_expanding > 0) ){
+            $deploy -= $this->map->bonuses[$this->bonus_thought_expanding]->income;
+            toLogX("substracting guessed bonus income from prediction...");
+        }
+        return $deploy;
     }
     
     public function guess_deploy(){
@@ -98,16 +120,18 @@ class CStrat{
         foreach ($this->his_deploys as $loc => $deploy){
             if($deploy >= 0){
                 $deploy_left -= $deploy;
-                toLogX("enemy deploy expected at {$this->map->region_names[$loc]}: $deploy");
+                toLogX("enemy deploy expected at {$this->map->region_names[$loc]}");
             }
         }
         
         // if we can infere where his armies will be deployed, set other regions to zero deploy
-        if($deploy_left < 1){
-            foreach ($this->his_deploys as &$deploy){
-                if($deploy < 0){
+        foreach ($this->his_deploys as &$deploy){
+            if($deploy < 0){
+                if($deploy_left < 1){
                     $deploy = 0;
                 }
+            }else{
+                $deploy = $this->map->income_two;
             }
         }
     }
@@ -232,6 +256,7 @@ class CStrat{
                 $is_threatened = 1;
             }elseif(count($threatened_provinces_unique) == 1){
                 $threatened_prov = $threatened_provinces_unique[0];
+                
                 $biggest_threat = $this->map->strongest_province($bordering_enemies);
                 $enemy_armies = $this->map->regions[$biggest_threat]->armies;
                 $my_armies = $this->map->regions[$threatened_prov]->armies;
@@ -261,7 +286,7 @@ class CStrat{
             $this->bonus_attitude[$bestbonus] = 5;
         }
         foreach ($this->bonus_attitude as $bonus => $attitude){
-            toLog("attitude towards {$this->map->bonus_names[$bonus]}: $attitude");
+            toLog("attitude towards {$this->map->bonus_names[$bonus]}: {$this->bonus_attitude_names[$attitude]}");
         }
     }
     
@@ -269,6 +294,27 @@ class CStrat{
         if($this->round < 2){return 0;}
         $surplus_income = 0;
         $his_deploy = $this->reg->armies_deployed_round($this->round - 1, false);
+        // if he hasnt deployed in 2 turns an income according to the bonus we guessed him to have 
+        // based on secret expansion... he doesnt own it
+        toLogX("bonus we guessed: $this->bonus_thought_expanding his confirmed income: $his_deploy");
+        if( ($this->bonus_thought_expanding > 0) && ($this->state != 5) && ($this->round > 5)){
+            if($his_deploy < $this->map->income_two){
+                $this->though_round_count++;
+                toLogX("he hasn't deployed an income suggesting he actually owns the guessed bonus");
+            }else{
+                //we have confirmation if he does deploy the entire income
+                $this->bonus_thought_expanding = 0;
+                toLogX("confirmed his bonus!");
+            }
+            if($this->though_round_count > 1){
+                toLogX("he failed twice in a row to deploy his supposed income based on our guess!");
+                if(!in_array($this->bonus_thought_expanding, $this->map->bonuses_broken_last_turn)){
+                    $this->remove_guessed_bonus($this->bonus_thought_expanding);
+                }
+                $this->bonus_thought_expanding = 0;
+                $this->enable_expansion_guessing = false;
+            }
+        }
         toLogX("bonuses broken last turn: " . implode(",", $this->map->bonuses_broken_last_turn));
         foreach ($this->map->bonuses_broken_last_turn as $bonus_id){
             $income = $this->map->bonuses[$bonus_id]->income;
@@ -295,7 +341,7 @@ class CStrat{
         }
         toLog("enemy income estimated at {$this->map->income_two} ($surplus_income unaccounted for)");
         // guess hiding place if he has deployed enough units out of our sight to complete a bonus elsewhere
-        if( ($surplus_income == 0) && (count($hiding_places) > 0) ){  
+        if( ($this->enable_expansion_guessing) && ($surplus_income == 0) && (count($hiding_places) > 0) ){  
             $this->guess_hiding($hiding_places);
         }
         // guess enemy bonuses if he has more income than his bonuses say he should
@@ -347,17 +393,20 @@ class CStrat{
         }        
     }
     
-    public function guess_hiding($hiding_places){      
-        $armies_complete = (count($this->map->bonuses[$hiding_places[0]]->regions) - 2 ) * 3;
-        $armies_needed_to_expand = (count($this->map->enemy_regions) - 3) * 3;
+    public function guess_hiding($hiding_places){  
+        $guess = $hiding_places[0];    
+        $armies_complete = (count($this->map->bonuses[$guess]->regions) - 2 ) * 3;
+        $armies_needed_to_expand = (count($this->map->enemy_regions) - 3) * 2;
         $spare_enemy_armies = ($this->map->enemy_expand_deploy - $armies_needed_to_expand);
+        
         foreach ($this->map->enemy_bonuses as $bonus_id){
             $spare_enemy_armies -= (count($this->map->bonuses[$bonus_id]->regions) - 1 ) * 3;
         }
+        toLog("hiding place {$this->map->bonus_names[$guess]}: {$spare_enemy_armies} spare armies and needs {$armies_complete} to complete bonus");
         if($spare_enemy_armies > $armies_complete){
-            $guess = $hiding_places[0];
-            toLog("enemy could be owning {$this->map->bonus_names[$guess]}: {$spare_enemy_armies} spare armies and needs {$armies_complete} to complete bonus");
             $this->add_guessed_bonus($guess);
+            $this->bonus_thought_expanding = $guess;
+            $this->though_round_count = 0;
         }        
     }
     
@@ -374,12 +423,45 @@ class CStrat{
         }
     }
 
+    public function remove_guessed_bonus($bonus_id){
+        $pos = array_search($bonus_id, $this->map->guessed_bonuses);
+        unset($this->map->guessed_bonuses[$pos]);
+        if(in_array($bonus_id, $this->map->enemy_bonuses)){            
+            $pos = array_search($bonus_id, $this->map->enemy_bonuses);
+            unset($this->map->enemy_bonuses[$pos]);
+        }
+        foreach ($this->map->bonuses[$bonus_id]->regions as $region){
+            if(in_array($region->id, $this->map->guessed_regions)){
+                $pos = array_search($region->id, $this->map->guessed_regions);
+                unset($this->map->guessed_regions[$pos]);
+                if(($region->owner == $this->map->player_two) && ($region->visible == 0)){
+                    $region->owner = "unknown";
+                }
+            }
+            if(in_array($region->id, $this->map->enemy_regions)){            
+                $pos = array_search($region->id, $this->map->enemy_regions);
+                unset($this->map->enemy_regions[$pos]);
+            }
+        }
+        if(($this->map->income_two - $this->map->bonuses[$bonus_id]->income) >= 5){
+            $this->map->income_two -= $this->map->bonuses[$bonus_id]->income;
+        }
+        $this->map->bonuses_broken_last_turn[] = $bonus_id;
+        $this->map->bonuses[$bonus_id]->owner = $this->map->bonus_owner($bonus_id);
+        toLog("guessed bonus {$this->map->bonus_names[$bonus_id]} not owned by enemy (owner: {$this->map->bonuses[$bonus_id]->owner})");
+    }
+    
     public function get_bonus_attitude($bonus_id){
         return $this->bonus_attitude[$bonus_id];
     }
     
     public function get_state(){
         return $this->state;
+    }
+    
+    public function set_state($state){
+        $this->state = $state;
+        toLogX("game state changed to $state");
     }
     
     public function get_strat($mode){
@@ -395,19 +477,33 @@ class CStrat{
     }
 
     public function define_state($round){
-        // states: 1=initial, 2=deadlock, 3=ffa, 4=mopup
+        // states: 1=initial, 2=deadlock, 3=ffa, 4=mopup, 5 = seek&destroy
         
         // check for initial
         if($round < 2){return 1;}
         
         // if no regions have been lost or gained, stay at initial for some more rounds
-        if($this->map->my_regions == $this->map->start_regions){
-            if($round < 5){
-                return 1;                
+        if(($round < 5) || ($this->map->my_regions == $this->map->start_regions) ) {
+            $newly_conquered_regions = array_diff($this->map->my_regions, $this->map->start_regions);
+            if(count($newly_conquered_regions) < 1){
+                return 1; 
             }
+            toLogX("initial stage is broken because we have expanded");
         }
         
-        // check for deadlock: 8 turns without attacks
+        // check for deadlock: same regions and income for 3 turns OR 8 turns without attacks
+        if( ($this->map->my_regions == $this->map->my_last_regions) &&
+                ($this->map->enemy_regions == $this->map->enemy_last_regions) &&
+                ($this->map->income_one == $this->map->income_two)){
+            if($this->rounds_to_deadlock == 2){
+                $this->rounds_to_deadlock = 0;
+                return 2;
+            }else{
+                $this->rounds_to_deadlock++;
+            }
+        }else{
+            $this->rounds_to_deadlock = 0;
+        }
         if( ($this->round > 7) &&
             ($this->reg->attacks_in_round($round - 1) <= $this->reg->getAttacks_on_neutrals($round - 1)) &&
             ($this->reg->attacks_in_round($round - 2) <= $this->reg->getAttacks_on_neutrals($round - 2)) &&
@@ -467,6 +563,21 @@ class CStrat{
     public function __construct(&$map, &$reg) {
         $this->map = $map;
         $this->reg = $reg;
+        $this->bonus_thought_expanding = 0;
+        $this->rounds_to_deadlock = 0;
+        $this->enable_expansion_guessing = true;
+        
+        // 1. neutral 2. explore 3. prevent 4. deadlock 5. take 6. break 7. owned 8. get presence
+        $this->bonus_attitude_names = array(
+            "1" => "neutral",   
+            "2" => "explore", 
+            "3" => "prevent", 
+            "4" => "deadlock", 
+            "5" => "take",
+            "6" => "break", 
+            "7" => "owned", 
+            "8" => "get presence"      
+        );
         $this->states = array(
             "1" => "initial",   
             "2" => "deadlock", 
