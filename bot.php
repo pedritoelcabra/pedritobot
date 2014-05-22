@@ -352,7 +352,7 @@ function updateMap($inputStr){
     if($verbose > 0){
         foreach ($map->regions as $region){
             $visible = $region->visible ? "visible" : "invisible";
-            //toLogX("region {$map->region_names[$region->id]} owned by {$region->owner} ($visible)");
+            toLogX("region {$map->region_names[$region->id]} owned by {$region->owner} ($visible)");
         }
     }
     if($round == 1){
@@ -648,12 +648,48 @@ function mapSpecific($map_name){
             ($map->income_two <= $map->income_one)){
             $my_africans = $map->has_adyacent(21, $map->player_one);
             $best_african = $map->strongest_province($my_africans);
+            if( $map->regions[21]->armies >= ($map->regions[$best_african]->armies + 7) ){
+                $north_africa_block = 0;
+            }
             if($north_africa_block == 0){
                 $north_africa_block = $map->regions[21]->armies;
             }elseif ($north_africa_block <= $map->regions[21]->armies) {
                 $north_africa_block = $map->regions[21]->armies;
                 $map->block_region($best_african, 8);
-                toLogX("north america map specific break ordered!");
+                $start = 0;
+                $end = 0;
+                if($map->regions[1]->owner == $map->player_one){
+                    toLogX("north america map specific break ordered! we own alaska :)");
+                }elseif ($map->regions[30]->owner == $map->player_one) {
+                    toLogX("north america map specific break ordered! take alaska");
+                    $start = 30;
+                    $end = 1;
+                }elseif ($map->regions[34]->owner == $map->player_one) {
+                    toLogX("north america map specific break ordered! take kamchatka");
+                    $start = 34;
+                    $end = 30;
+                }elseif ($map->regions[33]->owner == $map->player_one) {
+                    toLogX("north america map specific break ordered! take mongolia");
+                    $start = 33;
+                    $end = 34;
+                }elseif ($map->regions[38]->owner == $map->player_one) {
+                    toLogX("north america map specific break ordered! take china");
+                    $start = 38;
+                    $end = 33;
+                }else{
+                    toLogX("north america map specific break ordered! take siam");
+                    $start = 39;
+                    $end = 38;
+                }
+                if( ($start > 0) && ($map->regions[$end]->owner == "neutral") ){
+                    $armies = $map->regions[$start]->armies - 1;
+                    $target_armies = $map->regions[$end]->armies;
+                    $mindep = ($target_armies * 2) - $armies;
+                    $map->proposed_moves[] = new CMove(6, $mindep, $map->income_one, $start, $armies + $mindep, $start, $end, 6);
+                    $strat->set_state(3);
+                }
+            }else{
+                $north_africa_block = $map->regions[21]->armies;
             }
         }
     }
