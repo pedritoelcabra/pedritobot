@@ -18,6 +18,7 @@ $line = 0;
 $loadgame = array();
 $loading = 0;
 $verbose = 0;
+$north_africa_block = 0;
 
 if (count($argv) > 1){
     if($argv[1] == "log"){
@@ -595,7 +596,9 @@ function openingMove(){
 }
 
 function mapSpecific($map_name){
-    global $map, $strat, $round;
+    global $map, $strat, $round, $north_africa_block;
+    
+    // block north africa and take north america
     if(($map_name == "small_earth") && 
             ($map->bonuses[2]->owner == $map->player_one) &&
             ($map->bonuses[6]->owner == $map->player_two) && 
@@ -615,18 +618,43 @@ function mapSpecific($map_name){
             }
         }
     }
+    
+    // catch a bot going for early europe
     if(($map_name == "small_earth") &&
             (!count($map->prov_in_bonus(6, $map->player_two))) &&
-            (!count($map->prov_in_bonus(2, $map->player_two))) ){
+            (!count($map->prov_in_bonus(2, $map->player_two))) &&
+            (!count($map->prov_in_bonus(6, "unknown"))) &&
+            (!count($map->prov_in_bonus(2, "unknown"))) ){
+        
         if(($round == 1) && ($map->regions[12]->owner == $map->player_one) ){
             toLogX("enemy going for europe... going for break!");
             $map->proposed_moves[] = new CMove(10, 5, 5, 12, 6, 12, 21, 0);
         }
+        
         if(($round == 2) && ($map->regions[21]->owner == $map->player_one) ){
             toLogX("enemy going for europe... going for break!");
             $armies = $map->regions[21]->armies - 1 + 5;
             $weaker = ($map->regions[18]->armies < $map->regions[20]->armies ? 18 : 20);
             $map->proposed_moves[] = new CMove(10, 5, 5, 21, $armies, 21, $weaker, 0);
+        }
+    }
+    
+    // break north america if a bot is holding north africa
+    if($map_name == "small_earth"){
+        if(($map->bonuses[6]->owner == $map->player_one) &&
+            ($map->bonuses[2]->owner == $map->player_two) && 
+            ($map->regions[21]->owner == $map->player_two) &&
+            ($map->regions[21]->armies >= ($map->income_two * 2)) &&
+            ($map->income_two <= $map->income_one)){
+            $my_africans = $map->has_adyacent(21, $map->player_one);
+            $best_african = $map->strongest_province($my_africans);
+            if($north_africa_block == 0){
+                $north_africa_block = $map->regions[21]->armies;
+            }elseif ($north_africa_block <= $map->regions[21]->armies) {
+                $north_africa_block = $map->regions[21]->armies;
+                $map->block_region($best_african, 8);
+                toLogX("north america map specific break ordered!");
+            }
         }
     }
 }
@@ -858,7 +886,13 @@ function breakBonus(){
         if($map->regions[$best_target]->owner == "neutral"){
             $delay = 2;
         }
+        // if we dont have any stack, lower priority
+        if($map->regions[$best_prov_b]->armies < $map->income_two){
+            $priority -= 2;
+        }
         $targets[] = new CMove($priority ,$req_deploy , $req_deploy, $best_prov_b, $available_armies - 1, $best_prov_b , $best_target, $delay);
+        
+        toLog("break proposed priority $priority: deploy $req_deploy - {$map->income_one} at {$map->region_names[$best_prov_b]} and attack {$map->region_names[$best_target]}");
         // we deploy more armies if we have spare
         $priority = 4;
         $max_surplus_deploy = $map->income_one - $req_deploy;
@@ -869,7 +903,6 @@ function breakBonus(){
         for($i = 0; $i < $max_surplus_deploy; $i++){
             $targets[] = new CMove($priority ,1 , 1, $best_prov_b, 0, 0, 0, 0);
         }
-        toLog("break proposed priority $priority: deploy $req_deploy - {$map->income_one} at {$map->region_names[$best_prov_b]} and attack {$map->region_names[$best_target]}");
         $map->bonuses_breaking_now[] = $bonusid;
     }
     // 
@@ -906,8 +939,11 @@ function breakRun(){
         $closest_stack = -1;
         $closest_dist = 999;
         $best_tile = -1;
+        $blocked = array();
+        $blocked = $map->get_blocked(6);
         foreach ($stacks as $loc => $armies){
             if($armies == 0){continue;}
+            if(in_array($loc, $blocked)){continue;}
             $stack_bonus = $map->regions[$loc]->bonus;
             if( ($map->bonuses[$stack_bonus]->owner == $map->player_one) && ($map->has_adyacent($loc, $map->player_two)) ){
                 continue;
@@ -916,6 +952,10 @@ function breakRun(){
             $dist = count($path);
             // 0 dist means no path
             if($dist > 0){
+                // if a neutral has 1 army, favor it
+                if($map->regions[$path[0]]->armies == 1){
+                    $dist--;
+                }
                 // slightly favor stacks over empty provinces for starting run breaks
                 if($armies < ($map->income_one*2)){
                     $dist++;
@@ -956,7 +996,12 @@ function breakRun(){
         toLogX("run break: moving stack from {$map->region_names[$closest_stack]} to {$map->region_names[$best_tile]}");
         $armies = $stacks[$closest_stack] - 1;
         $stacks[$closest_stack] = 0;
-        $targets[] = new CMove($priority, 0, $map->income_one, $closest_stack, $armies, $closest_stack, $best_tile, 0);
+        $target_armies = $map->regions[$best_tile]->armies;
+        $req_attack_force = reqArmiesAttack($target_armies);
+        $min_dep = $req_attack_force + 1;
+        if($min_dep < 0){$min_dep = 0;}
+        if($min_dep > $map->income_one){$min_dep = $map->income_one;}
+        $targets[] = new CMove($priority, $min_dep, $map->income_one, $closest_stack, $armies + $min_dep, $closest_stack, $best_tile, 0);
     }
     $map->proposed_moves = array_merge($map->proposed_moves, $targets);
 }
@@ -1289,7 +1334,7 @@ function completeBonus(){
             $priority += 2;
         }
         if($map->income_two > $map->income_one){
-            $priority += 1;
+            $priority += 2;
         }
         
         $income_total = $map->income_one;
@@ -1532,7 +1577,7 @@ function evaluateMoves(){
     $map->final_moves = array();
     $moves = $map->proposed_moves;
     foreach ($moves as $move){
-        toLogX("proposed move: P: $move->priority D: $move->delay DEP: $move->deploy_max L: {$map->region_names[$move->deploy_loc]}" . 
+        toLogX("proposed move: P: $move->priority D: $move->delay DEPMIN: $move->deploy_min DEPMAX: $move->deploy_max L: {$map->region_names[$move->deploy_loc]}" . 
                 " ATT: $move->attack_amount -> {$map->region_names[$move->attack_end]}");
     }
     toLogX("armies left per region: " . implode(" ", $map->armies_left_region) . " regions: " . implode(" ", array_keys($map->armies_left_region)));
@@ -1732,7 +1777,7 @@ function reqArmiesAttackCrit($def){
     }else if($def < 20){
         $reqarmies = ($def*1.2);
     }else{        
-        $reqarmies = ($def*1.1);
+        $reqarmies = ($def*1.15);
     }
     return ceil($reqarmies);
 }
