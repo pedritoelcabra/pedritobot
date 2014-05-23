@@ -482,7 +482,7 @@ function openingMove(){
         $end = 0;
         $start = 0;
         $my_armies = $map->regions[$my_prov]->armies;
-        if($my_armies > ($map->income_one*10)){
+        if($my_armies > ($map->income_one*6)){
             toLog("abort openingMove! stack too big");
             $strat->set_state(2);
             return 0;
@@ -653,7 +653,9 @@ function mapSpecific($map_name){
             }
             if($north_africa_block == 0){
                 $north_africa_block = $map->regions[21]->armies;
-            }elseif ($north_africa_block <= $map->regions[21]->armies) {
+            }elseif ( (($north_africa_block <= $map->regions[21]->armies) && 
+                        ($map->regions[21]->armies < reqArmiesAttack($map->regions[$best_african]->armies)) ) || 
+                    ($map->regions[$best_african]->armies < reqArmiesAttack($map->regions[21]->armies)) ) {
                 $north_africa_block = $map->regions[21]->armies;
                 $map->block_region($best_african, 8);
                 $start = 0;
@@ -1230,19 +1232,26 @@ function destroyArmy(){
             shuffle($adyacent_enemies);
             usort($adyacent_enemies, "regionByArmies");
             foreach ($adyacent_enemies as $target_id){
-                $strongest_mine_adyacent = $map->strongest_province($map->has_adyacent($target_id, $map->player_one));
-                if($strongest_mine_adyacent != $region_id){
-                    continue;
-                }
+                // sort priorities
                 $priority = 6;
                 $his_armies = $map->regions[$target_id]->armies;
                 $my_armies = $map->regions[$region_id]->armies - 1;
                 if( ($map->income_one > $map->income_two) && ($my_armies > ($map->income_one*10)) ){
                     $priority = 7;
-                    if($his_armies > ($map->income_one*10)){
-                        $priority = 8;
+                }
+                // check if this is the best province to attack from
+                $mine_adyacent = $map->has_adyacent($target_id, $map->player_one);
+                $mine_adyacent_non_blocked = array();
+                foreach ($mine_adyacent as $ady){
+                    if(!in_array($ady, $map->get_blocked($priority))){
+                        $mine_adyacent_non_blocked[] = $ady;
                     }
                 }
+                $strongest_mine_adyacent = $map->strongest_province($mine_adyacent_non_blocked);
+                if($strongest_mine_adyacent != $region_id){
+                    continue;
+                }
+                
                 $predicted_deploy = $strat->predict_deploy($target_id);
                 toLogX("predicted $predicted_deploy");
                 // normal attack                
