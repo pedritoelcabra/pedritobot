@@ -687,7 +687,12 @@ function mapSpecific($map_name){
                     $armies = $map->regions[$start]->armies - 1;
                     $target_armies = $map->regions[$end]->armies;
                     $mindep = ($target_armies * 2) - $armies;
-                    $map->proposed_moves[] = new CMove(6, $mindep, $map->income_one, $start, $armies + $mindep, $start, $end, 6);
+                    if($mindep < 0){$mindep = 0;}
+                    $maxdep = $mindep;
+                    if(($map->regions[21]->armies + 7) < reqArmiesAttack($map->regions[$best_african]->armies)){
+                        $maxdep = $map->income_one;
+                    }
+                    $map->proposed_moves[] = new CMove(6, $mindep, $maxdep, $start, $armies + $mindep, $start, $end, 6);
                     $strat->set_state(3);
                 }
             }else{
@@ -1011,6 +1016,10 @@ function breakRun(){
         toLogX("closest stack is at $closest_stack (dist: $closest_dist), path through $best_tile");
         if($closest_stack == -1){
             toLogX("no path/stack found");
+            continue;
+        }
+        if($map->regions[$best_tile]->owner == $map->player_one){
+            toLogX("path goes through our own territory");
             continue;
         }
         if($closest_dist > ($round - 2)){
