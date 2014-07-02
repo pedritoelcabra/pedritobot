@@ -7,7 +7,7 @@ include_once 'classes/map.php';
 include_once 'classes/moveReg.php';
 include_once 'classes/strat.php';
 
-$use_map_specific_strategy = "small_earth";
+$use_map_specific_strategy = "";
 $run = true;
 $map = new CMap();
 $mreg = new CRegister($map);
@@ -1250,13 +1250,7 @@ function destroyArmy(){
                 }
                 // check if this is the best province to attack from
                 $mine_adyacent = $map->has_adyacent($target_id, $map->player_one);
-                $mine_adyacent_non_blocked = array();
-                foreach ($mine_adyacent as $ady){
-                    if(!in_array($ady, $map->get_blocked($priority))){
-                        $mine_adyacent_non_blocked[] = $ady;
-                    }
-                }
-                $strongest_mine_adyacent = $map->strongest_province($mine_adyacent_non_blocked);
+                $strongest_mine_adyacent = $map->strongest_province($mine_adyacent);
                 if($strongest_mine_adyacent != $region_id){
                     continue;
                 }
